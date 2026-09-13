@@ -44,22 +44,78 @@ class DataFetcher:
         timeframe: str = "1h",
         limit: int = 100
     ) -> pd.DataFrame:
-        """Fetch OHLCV candlestick data from CCXT exchange and return enriched DataFrame."""
-        try:
-            if not self.exchange:
-                raise ValueError("Exchange instance unavailable")
-            ohlcv = self.exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=limit)
-            df = pd.DataFrame(
-                ohlcv,
-                columns=['timestamp', 'open', 'high', 'low', 'close', 'volume']
-            )
-            df['datetime'] = pd.to_datetime(df['timestamp'], unit='ms')
-        except Exception as e:
-            logger.error(f"Error fetching OHLCV from {self.exchange_id}: {e}. Generating simulated market data.")
+        """Fetch OHLCV candlestick data from CCXT exchange or public REST APIs."""
+        df = None
+        
+        # 1. Try CCXT exchange connection first
+        if self.exchange:
+            try:
+                ohlcv = self.exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=limit)
+                df = pd.DataFrame(
+                    ohlcv,
+                    columns=['timestamp', 'open', 'high', 'low', 'close', 'volume']
+                )
+                df['datetime'] = pd.to_datetime(df['timestamp'], unit='ms')
+            except Exception as e:
+                logger.warning(f"CCXT fetch_ohlcv error: {e}. Trying direct public REST API.")
+
+        # 2. Try direct Binance / Bybit public REST API if CCXT failed or uninitialized
+        if df is None or df.empty:
+            df = self._fetch_from_public_api(symbol=symbol, timeframe=timeframe, limit=limit)
+
+        # 3. Fallback to simulation data if both network options fail
+        if df is None or df.empty:
+            logger.error(f"Network error on market APIs. Generating simulated market data.")
             df = self._generate_simulated_data(symbol=symbol, limit=limit)
 
         df = self.calculate_indicators(df)
         return df
+
+    def _fetch_from_public_api(self, symbol: str = "BTC/USDT", timeframe: str = "1h", limit: int = 100) -> Optional[pd.DataFrame]:
+        """Fetch live OHLCV data directly from Binance or Bybit public REST APIs."""
+        import requests
+        clean_symbol = symbol.replace("/", "").upper()
+        
+        tf_map = {"15m": "15m", "1h": "1h", "4h": "4h", "1d": "1d"}
+        interval = tf_map.get(timeframe, "1h")
+        headers = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"}
+
+        # Binance Public Kline API
+        try:
+            url = f"https://api.binance.com/api/v3/klines?symbol={clean_symbol}&interval={interval}&limit={limit}"
+            resp = requests.get(url, headers=headers, timeout=5)
+            if resp.status_code == 200:
+                data = resp.json()
+                rows = [
+                    [int(k[0]), float(k[1]), float(k[2]), float(k[3]), float(k[4]), float(k[5])]
+                    for k in data
+                ]
+                df = pd.DataFrame(rows, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+                df['datetime'] = pd.to_datetime(df['timestamp'], unit='ms')
+                logger.info(f"Successfully fetched live {symbol} [{timeframe}] data from Binance Public API.")
+                return df
+        except Exception as e:
+            logger.warning(f"Binance public API fetch error: {e}")
+
+        # Bybit Public Kline API Fallback
+        try:
+            bybit_tf = "15" if timeframe == "15m" else "60" if timeframe == "1h" else "240" if timeframe == "4h" else "D"
+            url = f"https://api.bybit.com/v5/market/kline?category=spot&symbol={clean_symbol}&interval={bybit_tf}&limit={limit}"
+            resp = requests.get(url, headers=headers, timeout=5)
+            if resp.status_code == 200:
+                data = resp.json().get("result", {}).get("list", [])
+                rows = [
+                    [int(k[0]), float(k[1]), float(k[2]), float(k[3]), float(k[4]), float(k[5])]
+                    for k in reversed(data)
+                ]
+                df = pd.DataFrame(rows, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+                df['datetime'] = pd.to_datetime(df['timestamp'], unit='ms')
+                logger.info(f"Successfully fetched live {symbol} [{timeframe}] data from Bybit Public API.")
+                return df
+        except Exception as e:
+            logger.warning(f"Bybit public API fetch error: {e}")
+
+        return None
 
     def calculate_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
         """Calculate technical analysis indicators (RSI, MA, EMA, MACD, Bollinger Bands, ATR)."""

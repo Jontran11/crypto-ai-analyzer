@@ -234,7 +234,11 @@ macro_input = st.sidebar.text_area(
     help="Nhập thông tin tin tức, Fed, On-Chain hoặc dòng tiền để AI kết hợp phân tích đa tầng"
 )
 
+refresh_button = st.sidebar.button("🔄 Cập nhật Giá Live Real-time")
 analyze_button = st.sidebar.button("🚀 Chạy Phân Tích AI Đa Tầng")
+
+if refresh_button:
+    st.rerun()
 
 # Fetch Market Data
 df_candles, summary_data = fetch_data_from_backend(symbol, timeframe)
