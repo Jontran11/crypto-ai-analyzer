@@ -20,6 +20,8 @@ try:
 except ImportError:
     BACKEND_MODULES_AVAILABLE = False
 
+import os
+
 # Page Configuration
 st.set_page_config(
     page_title="Crypto AI Analyzer - Trading Dashboard",
@@ -27,6 +29,42 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+# Password Protection Gate
+def check_password() -> bool:
+    """Kiểm tra mật khẩu bảo vệ ứng dụng."""
+    app_pwd = None
+    try:
+        if hasattr(st, "secrets") and "APP_PASSWORD" in st.secrets:
+            app_pwd = st.secrets["APP_PASSWORD"]
+    except Exception:
+        pass
+    if not app_pwd:
+        app_pwd = os.getenv("APP_PASSWORD", "crypto2026")
+
+    if st.session_state.get("password_correct", False):
+        return True
+
+    st.markdown("""
+        <div style='text-align: center; padding: 40px;'>
+            <h2>🔒 Crypto AI Analyzer & Trading Platform</h2>
+            <p style='color: #848E9C;'>Ứng dụng được bảo vệ riêng tư. Vui lòng nhập mật khẩu để truy cập.</p>
+        </div>
+    """, unsafe_allow_html=True)
+    
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        user_input = st.text_input("Nhập mật khẩu truy cập (Password):", type="password", key="pwd_input")
+        if st.button("🔑 Đăng nhập / Truy cập Dashboard"):
+            if user_input == app_pwd:
+                st.session_state["password_correct"] = True
+                st.rerun()
+            else:
+                st.error("❌ Mật khẩu không chính xác. Vui lòng thử lại!")
+    return False
+
+if not check_password():
+    st.stop()
 
 # Custom Dark Theme CSS Styling
 st.markdown("""
