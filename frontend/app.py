@@ -17,7 +17,7 @@ try:
     from backend.ai_analyzer import AIAnalyzer
     from backend.executor import ExchangeExecutor, OrderRequest, OrderSide, OrderType
     BACKEND_MODULES_AVAILABLE = True
-except ImportError:
+except Exception:
     BACKEND_MODULES_AVAILABLE = False
 
 import os
@@ -33,14 +33,14 @@ st.set_page_config(
 # Password Protection Gate
 def check_password() -> bool:
     """Kiểm tra mật khẩu bảo vệ ứng dụng."""
-    app_pwd = None
+    app_pwd = "crypto2026"
     try:
         if hasattr(st, "secrets") and "APP_PASSWORD" in st.secrets:
-            app_pwd = st.secrets["APP_PASSWORD"]
+            app_pwd = str(st.secrets["APP_PASSWORD"]).strip()
+        else:
+            app_pwd = os.getenv("APP_PASSWORD", "crypto2026").strip()
     except Exception:
-        pass
-    if not app_pwd:
-        app_pwd = os.getenv("APP_PASSWORD", "crypto2026")
+        app_pwd = os.getenv("APP_PASSWORD", "crypto2026").strip()
 
     if st.session_state.get("password_correct", False):
         return True
