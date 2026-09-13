@@ -130,6 +130,25 @@ class DataFetcher:
         except Exception as e:
             logger.warning(f"Bybit Public API error: {e}")
 
+        # Source 4: CryptoCompare Public API (Global Cloud Fallback)
+        try:
+            base_coin = symbol.split("/")[0].upper()
+            quote_coin = symbol.split("/")[1].upper()
+            url = f"https://min-api.cryptocompare.com/data/v2/histohour?fsym={base_coin}&tsym={quote_coin}&limit={limit}"
+            resp = requests.get(url, headers=headers, timeout=4)
+            if resp.status_code == 200:
+                data = resp.json().get("Data", {}).get("Data", [])
+                rows = [
+                    [int(k['time']) * 1000, float(k['open']), float(k['high']), float(k['low']), float(k['close']), float(k['volumeto'])]
+                    for k in data
+                ]
+                df = pd.DataFrame(rows, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+                df['datetime'] = pd.to_datetime(df['timestamp'], unit='ms')
+                logger.info(f"Successfully fetched LIVE {symbol} [{timeframe}] price: ${df.iloc[-1]['close']:,.2f} from CryptoCompare Public API.")
+                return df
+        except Exception as e:
+            logger.warning(f"CryptoCompare Public API error: {e}")
+
         return None
 
     def calculate_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
