@@ -1,0 +1,24 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual Environment
+.venv/
+env/
+venv/
+ENV/
+
+# Sensitive Environment Variables (Secrets)
+.env
+
+# Local Databases and Logs
+*.db
+*.log
+*.pid
+
+# macOS system files
+.DS_Store
+
+# Streamlit local user configs
+.streamlit/credentials.toml
