@@ -8,13 +8,14 @@ except ImportError:
 import pandas as pd
 import numpy as np
 import logging
+import requests
 from typing import Dict, Any, Tuple, Optional
 
 logger = logging.getLogger("crypto_analyzer.data_fetcher")
 logging.basicConfig(level=logging.INFO)
 
 class DataFetcher:
-    """Handles fetching OHLCV data via CCXT and calculating technical indicators."""
+    """Handles fetching live OHLCV data via CCXT and public REST APIs, calculating technical indicators."""
 
     def __init__(self, exchange_id: str = "binance"):
         self.exchange_id = exchange_id.lower()
@@ -22,7 +23,7 @@ class DataFetcher:
 
     def _init_exchange(self, exchange_id: str) -> Optional[Any]:
         if not CCXT_AVAILABLE:
-            logger.warning("CCXT library is not installed. DataFetcher will run in simulation mode.")
+            logger.warning("CCXT library is not installed. DataFetcher will use direct public REST APIs.")
             return None
         try:
             exchange_class = getattr(ccxt, exchange_id)
@@ -32,11 +33,8 @@ class DataFetcher:
             })
             return exchange
         except Exception as e:
-            logger.warning(f"Exchange {exchange_id} initialization error: {e}, falling back to binance")
-            try:
-                return ccxt.binance({'enableRateLimit': True, 'timeout': 10000})
-            except Exception:
-                return None
+            logger.warning(f"Exchange {exchange_id} initialization error: {e}, falling back to public REST APIs.")
+            return None
 
     def fetch_ohlcv(
         self,
@@ -44,11 +42,14 @@ class DataFetcher:
         timeframe: str = "1h",
         limit: int = 100
     ) -> pd.DataFrame:
-        """Fetch OHLCV candlestick data from CCXT exchange or public REST APIs."""
+        """Fetch live OHLCV candlestick data from CCXT exchange or public REST APIs."""
         df = None
-        
-        # 1. Try CCXT exchange connection first
-        if self.exchange:
+
+        # 1. Try direct public REST APIs first (fastest and most reliable across cloud platforms)
+        df = self._fetch_from_public_api(symbol=symbol, timeframe=timeframe, limit=limit)
+
+        # 2. Try CCXT exchange connection if public API returned empty
+        if (df is None or df.empty) and self.exchange:
             try:
                 ohlcv = self.exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=limit)
                 df = pd.DataFrame(
@@ -57,33 +58,30 @@ class DataFetcher:
                 )
                 df['datetime'] = pd.to_datetime(df['timestamp'], unit='ms')
             except Exception as e:
-                logger.warning(f"CCXT fetch_ohlcv error: {e}. Trying direct public REST API.")
+                logger.warning(f"CCXT fetch_ohlcv error: {e}")
 
-        # 2. Try direct Binance / Bybit public REST API if CCXT failed or uninitialized
+        # 3. Fallback to realistic market simulation if all network sources fail
         if df is None or df.empty:
-            df = self._fetch_from_public_api(symbol=symbol, timeframe=timeframe, limit=limit)
-
-        # 3. Fallback to simulation data if both network options fail
-        if df is None or df.empty:
-            logger.error(f"Network error on market APIs. Generating simulated market data.")
+            logger.error(f"Network APIs offline or blocked. Generating simulated market data for {symbol}.")
             df = self._generate_simulated_data(symbol=symbol, limit=limit)
 
         df = self.calculate_indicators(df)
         return df
 
     def _fetch_from_public_api(self, symbol: str = "BTC/USDT", timeframe: str = "1h", limit: int = 100) -> Optional[pd.DataFrame]:
-        """Fetch live OHLCV data directly from Binance or Bybit public REST APIs."""
-        import requests
+        """Fetch live OHLCV data directly from Binance, Binance US, or Bybit public REST APIs."""
         clean_symbol = symbol.replace("/", "").upper()
-        
         tf_map = {"15m": "15m", "1h": "1h", "4h": "4h", "1d": "1d"}
         interval = tf_map.get(timeframe, "1h")
-        headers = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"}
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "application/json"
+        }
 
-        # Binance Public Kline API
+        # Source 1: Binance Global API
         try:
             url = f"https://api.binance.com/api/v3/klines?symbol={clean_symbol}&interval={interval}&limit={limit}"
-            resp = requests.get(url, headers=headers, timeout=5)
+            resp = requests.get(url, headers=headers, timeout=4)
             if resp.status_code == 200:
                 data = resp.json()
                 rows = [
@@ -92,16 +90,33 @@ class DataFetcher:
                 ]
                 df = pd.DataFrame(rows, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
                 df['datetime'] = pd.to_datetime(df['timestamp'], unit='ms')
-                logger.info(f"Successfully fetched live {symbol} [{timeframe}] data from Binance Public API.")
+                logger.info(f"Successfully fetched LIVE {symbol} [{timeframe}] price: ${df.iloc[-1]['close']:,.2f} from Binance Global API.")
                 return df
         except Exception as e:
-            logger.warning(f"Binance public API fetch error: {e}")
+            logger.warning(f"Binance Global API error: {e}")
 
-        # Bybit Public Kline API Fallback
+        # Source 2: Binance US API
+        try:
+            url = f"https://api.binance.us/api/v3/klines?symbol={clean_symbol}&interval={interval}&limit={limit}"
+            resp = requests.get(url, headers=headers, timeout=4)
+            if resp.status_code == 200:
+                data = resp.json()
+                rows = [
+                    [int(k[0]), float(k[1]), float(k[2]), float(k[3]), float(k[4]), float(k[5])]
+                    for k in data
+                ]
+                df = pd.DataFrame(rows, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+                df['datetime'] = pd.to_datetime(df['timestamp'], unit='ms')
+                logger.info(f"Successfully fetched LIVE {symbol} [{timeframe}] price: ${df.iloc[-1]['close']:,.2f} from Binance US API.")
+                return df
+        except Exception as e:
+            logger.warning(f"Binance US API error: {e}")
+
+        # Source 3: Bybit Public API
         try:
             bybit_tf = "15" if timeframe == "15m" else "60" if timeframe == "1h" else "240" if timeframe == "4h" else "D"
             url = f"https://api.bybit.com/v5/market/kline?category=spot&symbol={clean_symbol}&interval={bybit_tf}&limit={limit}"
-            resp = requests.get(url, headers=headers, timeout=5)
+            resp = requests.get(url, headers=headers, timeout=4)
             if resp.status_code == 200:
                 data = resp.json().get("result", {}).get("list", [])
                 rows = [
@@ -110,10 +125,10 @@ class DataFetcher:
                 ]
                 df = pd.DataFrame(rows, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
                 df['datetime'] = pd.to_datetime(df['timestamp'], unit='ms')
-                logger.info(f"Successfully fetched live {symbol} [{timeframe}] data from Bybit Public API.")
+                logger.info(f"Successfully fetched LIVE {symbol} [{timeframe}] price: ${df.iloc[-1]['close']:,.2f} from Bybit Public API.")
                 return df
         except Exception as e:
-            logger.warning(f"Bybit public API fetch error: {e}")
+            logger.warning(f"Bybit Public API error: {e}")
 
         return None
 
@@ -163,11 +178,10 @@ class DataFetcher:
     def get_market_summary(self, df: pd.DataFrame, symbol: str, timeframe: str) -> Dict[str, Any]:
         """Summarize latest technical indicator values into a structured dict for AI input."""
         latest = df.iloc[-1]
-        prev = df.iloc[-2] if len(df) > 1 else latest
 
         current_price = float(latest['close'])
         price_change_24h = float(((latest['close'] - df.iloc[0]['close']) / df.iloc[0]['close']) * 100)
-        
+
         recent_candles = df.tail(10)[['datetime', 'open', 'high', 'low', 'close', 'volume', 'rsi_14', 'macd']].to_dict(orient='records')
         for c in recent_candles:
             c['datetime'] = str(c['datetime'])
