@@ -30,17 +30,20 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+def safe_get_secret_front(key: str, default: str = "") -> str:
+    try:
+        if hasattr(st, "secrets"):
+            val = st.secrets.get(key, None)
+            if val is not None:
+                return str(val).strip()
+    except Exception:
+        pass
+    return os.getenv(key, default).strip()
+
 # Password Protection Gate
 def check_password() -> bool:
     """Kiểm tra mật khẩu bảo vệ ứng dụng."""
-    app_pwd = "crypto2026"
-    try:
-        if hasattr(st, "secrets") and "APP_PASSWORD" in st.secrets:
-            app_pwd = str(st.secrets["APP_PASSWORD"]).strip()
-        else:
-            app_pwd = os.getenv("APP_PASSWORD", "crypto2026").strip()
-    except Exception:
-        app_pwd = os.getenv("APP_PASSWORD", "crypto2026").strip()
+    app_pwd = safe_get_secret_front("APP_PASSWORD", "crypto2026")
 
     if st.session_state.get("password_correct", False):
         return True

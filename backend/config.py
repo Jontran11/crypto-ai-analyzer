@@ -10,87 +10,69 @@ if ENV_PATH.exists():
 else:
     load_dotenv()
 
+def safe_get_secret(key: str, default: str = "") -> str:
+    """Safely get secret from Streamlit secrets or OS env without throwing FileNotFoundError or KeyError."""
+    try:
+        import streamlit as st
+        try:
+            val = st.secrets.get(key, None)
+            if val is not None:
+                return str(val).strip()
+        except Exception:
+            pass
+    except Exception:
+        pass
+    return os.getenv(key, default).strip()
+
 class Settings:
     """Application configuration settings supporting .env, OS environment, and Streamlit Secrets."""
 
     @property
     def GEMINI_API_KEY(self) -> str:
-        try:
-            import streamlit as st
-            if hasattr(st, "secrets") and "GEMINI_API_KEY" in st.secrets:
-                return str(st.secrets["GEMINI_API_KEY"]).strip()
-        except Exception:
-            pass
-        return os.getenv("GEMINI_API_KEY", "").strip()
+        return safe_get_secret("GEMINI_API_KEY", "")
 
     @property
     def GEMINI_MODEL(self) -> str:
-        try:
-            import streamlit as st
-            if hasattr(st, "secrets") and "GEMINI_MODEL" in st.secrets:
-                return str(st.secrets["GEMINI_MODEL"]).strip()
-        except Exception:
-            pass
-        return os.getenv("GEMINI_MODEL", "gemini-3.6-flash").strip()
+        return safe_get_secret("GEMINI_MODEL", "gemini-3.6-flash")
 
     @property
     def HOST(self) -> str:
-        return os.getenv("HOST", "127.0.0.1")
+        return safe_get_secret("HOST", "127.0.0.1")
 
     @property
     def PORT(self) -> int:
-        return int(os.getenv("PORT", "8000"))
+        try:
+            return int(safe_get_secret("PORT", "8000"))
+        except Exception:
+            return 8000
 
     @property
     def DEFAULT_EXCHANGE(self) -> str:
-        return os.getenv("DEFAULT_EXCHANGE", "binance")
+        return safe_get_secret("DEFAULT_EXCHANGE", "binance")
 
     @property
     def DEFAULT_SYMBOL(self) -> str:
-        return os.getenv("DEFAULT_SYMBOL", "BTC/USDT")
+        return safe_get_secret("DEFAULT_SYMBOL", "BTC/USDT")
 
     @property
     def DEFAULT_TIMEFRAME(self) -> str:
-        return os.getenv("DEFAULT_TIMEFRAME", "1h")
+        return safe_get_secret("DEFAULT_TIMEFRAME", "1h")
 
     @property
     def PAPER_TRADING(self) -> bool:
-        try:
-            import streamlit as st
-            if hasattr(st, "secrets") and "PAPER_TRADING" in st.secrets:
-                return str(st.secrets["PAPER_TRADING"]).lower() == "true"
-        except Exception:
-            pass
-        return os.getenv("PAPER_TRADING", "true").lower() == "true"
+        val = safe_get_secret("PAPER_TRADING", "true")
+        return str(val).lower() == "true"
 
     @property
     def EXCHANGE_API_KEY(self) -> str:
-        try:
-            import streamlit as st
-            if hasattr(st, "secrets") and "EXCHANGE_API_KEY" in st.secrets:
-                return str(st.secrets["EXCHANGE_API_KEY"]).strip()
-        except Exception:
-            pass
-        return os.getenv("EXCHANGE_API_KEY", "").strip()
+        return safe_get_secret("EXCHANGE_API_KEY", "")
 
     @property
     def EXCHANGE_SECRET_KEY(self) -> str:
-        try:
-            import streamlit as st
-            if hasattr(st, "secrets") and "EXCHANGE_SECRET_KEY" in st.secrets:
-                return str(st.secrets["EXCHANGE_SECRET_KEY"]).strip()
-        except Exception:
-            pass
-        return os.getenv("EXCHANGE_SECRET_KEY", "").strip()
+        return safe_get_secret("EXCHANGE_SECRET_KEY", "")
 
     @property
     def APP_PASSWORD(self) -> str:
-        try:
-            import streamlit as st
-            if hasattr(st, "secrets") and "APP_PASSWORD" in st.secrets:
-                return str(st.secrets["APP_PASSWORD"]).strip()
-        except Exception:
-            pass
-        return os.getenv("APP_PASSWORD", "crypto2026").strip()
+        return safe_get_secret("APP_PASSWORD", "crypto2026")
 
 settings = Settings()
